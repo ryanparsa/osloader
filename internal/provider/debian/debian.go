@@ -12,6 +12,7 @@ import (
 
 	"github.com/ryanparsa/osloader/internal/logging"
 	"github.com/ryanparsa/osloader/internal/provider"
+	"github.com/ryanparsa/osloader/internal/provider/webdir"
 	"github.com/ryanparsa/osloader/internal/ua"
 	"github.com/ryanparsa/osloader/internal/verify"
 )
@@ -22,16 +23,8 @@ import (
 // checked against.
 const primary = "https://cdimage.debian.org/"
 
-// Built-in source choices. Everything else in the menu comes from Debian's own
-// mirror list, fetched at runtime.
 // mirrorConnections is how many parallel connections one mirror may get.
 const mirrorConnections = 4
-
-const (
-	sourceOfficial = "official"
-	sourceFastest  = "fastest"
-	sourceFastest3 = "fastest3"
-)
 
 // architectures kept in the listing. Debian publishes more; these are the ones
 // people actually install from.
@@ -53,7 +46,7 @@ type Provider struct {
 
 // image is one downloadable ISO.
 type image struct {
-	file     listedFile
+	file     webdir.File
 	path     string // path under the mirror root
 	sha256   string
 	arch     string
@@ -100,6 +93,11 @@ func SetUserAgent(value string) { defaultProvider.agent = ua.Resolve(value) }
 // Name implements provider.Provider.
 func (p *Provider) Name() string { return "Debian" }
 
+// Description implements provider.Describer.
+func (p *Provider) Description() string {
+	return "cdimage.debian.org - SHA-256 from the signed SHA256SUMS, fastest mirrors measured"
+}
+
 // Available implements provider.Provider.
 func (p *Provider) Available() bool { return true }
 
@@ -124,10 +122,8 @@ func (p *Provider) Facets(channel string) []provider.Facet {
 			{ID: "i386", Label: "i386 - 32-bit PC"},
 		},
 	}
-	source := p.sourceFacet(channel)
-
 	if channel == "live" {
-		return []provider.Facet{arch, source}
+		return []provider.Facet{arch}
 	}
 	return []provider.Facet{arch, {
 		Key: "media", Label: "Image size", AllowAll: true,
@@ -135,84 +131,47 @@ func (p *Provider) Facets(channel string) []provider.Facet {
 			{ID: "cd", Label: "CD - netinst and small images"},
 			{ID: "dvd", Label: "DVD - full first disc"},
 		},
-	}, source}
+	}}
 }
 
-// sourceFacet is the "where should this come from" question. Debian's own
-// server is first, so doing nothing downloads from Debian; then the measured
-// options; then every mirror Debian publishes, which the list page can be
-// searched through.
-func (p *Provider) sourceFacet(channel string) provider.Facet {
-	values := []provider.FacetValue{
-		{ID: sourceOfficial, Label: "cdimage.debian.org - Debian's own server"},
-	}
-
-	// Weekly builds are not mirrored, so offering mirrors there would only
-	// produce 404s.
-	if channel != "testing" {
-		values = append(values,
-			provider.FacetValue{ID: sourceFastest, Label: "Fastest - measure mirrors and use the quickest"},
-			provider.FacetValue{ID: sourceFastest3, Label: "Fastest three - measure and spread the connections"})
-		for _, site := range p.menuSites() {
-			values = append(values, provider.FacetValue{ID: site.Host, Label: site.Label()})
-		}
-	}
-
-	return provider.Facet{
-		Key: "mirror", Label: "Source", Stage: provider.StageResolve,
-		FreeForm: true, Values: values,
-	}
-}
-
-// sources turns the mirror answer into the URLs to download from. Nothing
-// chosen means Debian's own server: one source, no surprises, no measuring.
-func (p *Provider) sources(ctx context.Context, path, choice string) (source, error) {
+// sources picks where a download comes from. Debian has around ninety mirrors
+// and no way to know which is close to this machine, so rather than asking the
+// user to guess, the mirrors are measured against the file itself and the
+// quickest ten are used together: connections spread across them, and any that
+// fails is dropped mid-download without the transfer noticing.
+func (p *Provider) sources(ctx context.Context, path string) source {
 	official := primary + path
 
-	switch choice {
-	case "", sourceOfficial:
-		return source{url: official}, nil
-
-	case sourceFastest, sourceFastest3:
-		ranked, err := p.rankMirrors(ctx, path)
-		if err != nil {
-			p.logger.Warn("falling back to Debian's own server", "err", err.Error())
-			return source{url: official}, nil
-		}
-
-		chosen := source{url: ranked[0].url, preferPrimary: choice == sourceFastest}
-		// For "fastest" the runners-up are spares, used only if the winner
-		// fails; for "fastest three" they carry connections of their own.
-		limit := min(3, len(ranked))
-		for _, m := range ranked[1:limit] {
-			chosen.spares = append(chosen.spares, m.url)
-		}
-		if chosen.preferPrimary {
-			chosen.spares = append(chosen.spares, official)
-		}
-		return chosen, nil
-
-	default:
-		site, ok := siteByHost(p.sites(ctx), choice)
-		if !ok {
-			return source{}, fmt.Errorf("unknown mirror %q - run `osloader list --os debian` first, or use official, fastest, fastest3", choice)
-		}
-		url, ok := site.URL(path)
-		if !ok {
-			return source{}, fmt.Errorf("mirror %s does not carry %s", site.Host, path)
-		}
-		// Debian's own server stands behind the chosen mirror, so one mirror
-		// refusing a connection does not end the download.
-		return source{url: url, spares: []string{official}, preferPrimary: true}, nil
+	// Weekly builds are only on Debian's own server.
+	if !strings.HasPrefix(path, "debian-cd/") {
+		return source{url: official}
 	}
+
+	ranked, err := p.rankMirrors(ctx, path)
+	if err != nil || len(ranked) == 0 {
+		if err != nil {
+			p.logger.Warn("using Debian's own server", "err", err.Error())
+		}
+		return source{url: official}
+	}
+
+	chosen := source{url: ranked[0].url}
+	for _, m := range ranked[1:] {
+		chosen.spares = append(chosen.spares, m.url)
+	}
+	// Debian's own server stands behind the mirrors: it redirects to one of
+	// them anyway, and it is the one host guaranteed to have the file.
+	chosen.spares = append(chosen.spares, official)
+
+	p.logger.Info("sources chosen", "fastest", ranked[0].site.Host, "mirrors", len(ranked))
+	return chosen
 }
 
-// source is where a download should come from: one address to use, and any
-// others worth keeping in reserve.
+// source is where a download should come from: the quickest address, and the
+// others to spread across and fall back to.
 type source struct {
-	url           string
-	spares        []string
-	preferPrimary bool
+	url    string
+	spares []string
 }
 
 // mediaDirs maps the media facet to the directories Debian publishes.
@@ -275,7 +234,7 @@ func (p *Provider) List(ctx context.Context, channel string, sel provider.Select
 			Arch:    img.arch,
 			Title:   "Debian " + img.variant + " · " + img.arch,
 			Posted:  img.modified,
-			Size:    img.file.size,
+			Size:    img.file.Size,
 		})
 	}
 	if len(releases) == 0 {
@@ -365,17 +324,17 @@ func (p *Provider) scan(ctx context.Context, paths []string) map[string]image {
 // scanDirectory pairs the digests in SHA256SUMS with the sizes and dates in the
 // directory index.
 func (p *Provider) scanDirectory(ctx context.Context, path string) (map[string]image, error) {
-	sumsBody, err := fetchText(ctx, p.client, primary+path+"SHA256SUMS", p.agent, p.logger)
+	sumsBody, err := webdir.FetchText(ctx, p.client, primary+path+"SHA256SUMS", p.agent, p.logger)
 	if err != nil {
 		return nil, err
 	}
-	sums := parseChecksums(strings.NewReader(sumsBody))
+	sums := webdir.ParseChecksums(strings.NewReader(sumsBody))
 
-	indexBody, err := fetchText(ctx, p.client, primary+path, p.agent, p.logger)
+	indexBody, err := webdir.FetchText(ctx, p.client, primary+path, p.agent, p.logger)
 	if err != nil {
 		p.logger.Debug("no directory index", "path", path, "err", err.Error())
 	}
-	listed := parseIndex(indexBody)
+	listed := webdir.ParseIndex(indexBody, ".iso")
 
 	images := pairImages(sums, listed, path, architectureFromPath(path))
 	p.logger.Info("debian directory", "path", path,
@@ -387,7 +346,7 @@ func (p *Provider) scanDirectory(ctx context.Context, path string) (map[string]i
 // covers images that exist solely as jigdo recipes - a Debian DVD set lists 27
 // hashes while the mirror carries only the first disc - and offering those
 // would mean handing the user a 404.
-func pairImages(sums checksums, listed map[string]listedFile, path, arch string) map[string]image {
+func pairImages(sums webdir.Checksums, listed map[string]webdir.File, path, arch string) map[string]image {
 	images := make(map[string]image, len(sums))
 	for name, sum := range sums {
 		if !strings.HasSuffix(name, ".iso") {
@@ -397,7 +356,7 @@ func pairImages(sums checksums, listed map[string]listedFile, path, arch string)
 		if len(listed) > 0 && !present {
 			continue // hashed for jigdo, but not served here
 		}
-		file.name = name
+		file.Name = name
 
 		described := describe(name)
 		images[name] = image{
@@ -407,7 +366,7 @@ func pairImages(sums checksums, listed map[string]listedFile, path, arch string)
 			arch:     arch,
 			version:  described.version,
 			variant:  described.variant,
-			modified: file.modified,
+			modified: file.Modified,
 		}
 	}
 	return images
@@ -442,20 +401,16 @@ func (p *Provider) Resolve(ctx context.Context, r provider.Release, sel provider
 		return provider.Artifact{}, fmt.Errorf("image %s not found in the %s channel", r.ID, r.Channel)
 	}
 
-	from, err := p.sources(ctx, img.path, sel.Get("mirror"))
-	if err != nil {
-		return provider.Artifact{}, err
-	}
+	from := p.sources(ctx, img.path)
 
 	return provider.Artifact{
 		URL:      from.url,
 		Mirrors:  from.spares,
-		Filename: img.file.name,
+		Filename: img.file.Name,
 		// Volunteer mirrors are not CDNs: a handful of connections each is the
 		// polite maximum, and several of them answer 403 to more.
-		MaxPerHost:    mirrorConnections,
-		PreferPrimary: from.preferPrimary,
-		Digest:        img.sha256,
-		Verifier:      verify.Checksum("sha256", img.sha256, "Debian's signed SHA256SUMS", 0),
+		MaxPerHost: mirrorConnections,
+		Digest:     img.sha256,
+		Verifier:   verify.Checksum("sha256", img.sha256, "Debian's signed SHA256SUMS", 0),
 	}, nil
 }

@@ -220,7 +220,12 @@ func newModel(ctx context.Context, cfg Config) model {
 		if err != nil {
 			continue
 		}
-		items = append(items, osItem{key: key, name: p.Name(), available: p.Available()})
+		items = append(items, osItem{
+			key:         key,
+			name:        p.Name(),
+			description: provider.Describe(p),
+			available:   p.Available(),
+		})
 	}
 
 	spin := spinner.New(spinner.WithSpinner(spinner.Dot))

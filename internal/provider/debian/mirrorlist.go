@@ -4,7 +4,8 @@ import (
 	"context"
 	"strings"
 	"sync"
-	"time"
+
+	"github.com/ryanparsa/osloader/internal/provider/webdir"
 )
 
 // masterlist is Debian's own machine-readable list of mirrors. Using it means
@@ -101,7 +102,7 @@ func (p *Provider) sites(ctx context.Context) []mirrorSite {
 		return p.mirrors.sites
 	}
 
-	body, err := fetchText(ctx, p.client, masterlist, p.agent, p.logger)
+	body, err := webdir.FetchText(ctx, p.client, masterlist, p.agent, p.logger)
 	if err != nil {
 		p.logger.Warn("mirror list unavailable", "err", err.Error())
 		return nil
@@ -110,15 +111,6 @@ func (p *Provider) sites(ctx context.Context) []mirrorSite {
 	p.mirrors.loaded = true
 	p.logger.Info("mirror list", "mirrors", len(p.mirrors.sites))
 	return p.mirrors.sites
-}
-
-// menuSites is the list used to build the Source menu. Menus are built without
-// a context, so this bounds the wait: a slow mirror list must not hold up the
-// UI, it just means fewer choices on screen this time.
-func (p *Provider) menuSites() []mirrorSite {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	return p.sites(ctx)
 }
 
 // siteByHost finds a mirror by the host the user named.

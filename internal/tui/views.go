@@ -32,9 +32,10 @@ var (
 
 // osItem is one operating system in the first picker.
 type osItem struct {
-	key       string
-	name      string
-	available bool
+	key         string
+	name        string
+	description string
+	available   bool
 }
 
 func (i osItem) Title() string {
@@ -43,12 +44,7 @@ func (i osItem) Title() string {
 	}
 	return i.name + soonBadge
 }
-func (i osItem) Description() string {
-	if i.available {
-		return "official installers, verified after download"
-	}
-	return "not implemented yet"
-}
+func (i osItem) Description() string { return i.description }
 func (i osItem) FilterValue() string { return i.name }
 
 // channelItem is one release train.

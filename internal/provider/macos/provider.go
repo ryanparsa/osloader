@@ -61,6 +61,11 @@ func Default() *Provider { return defaultProvider }
 // Name implements provider.Provider.
 func (p *Provider) Name() string { return "macOS" }
 
+// Description implements provider.Describer.
+func (p *Provider) Description() string {
+	return "Apple's Software Update catalog - pkgutil checks the signature"
+}
+
 // Available implements provider.Provider.
 func (p *Provider) Available() bool { return true }
 

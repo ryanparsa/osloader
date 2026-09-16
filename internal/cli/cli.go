@@ -17,13 +17,17 @@ import (
 	"github.com/ryanparsa/osloader/internal/logging"
 	"github.com/ryanparsa/osloader/internal/provider"
 	"github.com/ryanparsa/osloader/internal/provider/debian"
+	"github.com/ryanparsa/osloader/internal/provider/fedora"
 	"github.com/ryanparsa/osloader/internal/provider/macos"
+	"github.com/ryanparsa/osloader/internal/provider/ubuntu"
 	"github.com/ryanparsa/osloader/internal/tui"
 	"github.com/ryanparsa/osloader/internal/ua"
 
 	// Registered for their side effects: each package adds itself to the
 	// provider registry.
 	_ "github.com/ryanparsa/osloader/internal/provider/debian"
+	_ "github.com/ryanparsa/osloader/internal/provider/fedora"
+	_ "github.com/ryanparsa/osloader/internal/provider/ubuntu"
 	_ "github.com/ryanparsa/osloader/internal/provider/windows"
 )
 
@@ -122,6 +126,10 @@ func applyProviderFlags() {
 	macos.SetLogger(verboseLogger())
 	debian.SetUserAgent(opts.userAgent)
 	debian.SetLogger(verboseLogger())
+	ubuntu.SetUserAgent(opts.userAgent)
+	ubuntu.SetLogger(verboseLogger())
+	fedora.SetUserAgent(opts.userAgent)
+	fedora.SetLogger(verboseLogger())
 }
 
 // verboseLogger writes the event log to stderr, so stdout stays usable for

@@ -113,6 +113,26 @@ func Keys() []string {
 	return append([]string(nil), order...)
 }
 
+// Describer is an optional interface: a provider that implements it can say
+// where its images come from and what proves them, which is more use in a menu
+// than the same sentence repeated for every OS.
+type Describer interface {
+	Description() string
+}
+
+// Describe returns a provider's own description, or a sensible default.
+func Describe(p Provider) string {
+	if d, ok := p.(Describer); ok {
+		if text := d.Description(); text != "" {
+			return text
+		}
+	}
+	if !p.Available() {
+		return "not implemented yet"
+	}
+	return "official images, verified after download"
+}
+
 // Stub is a provider placeholder for an OS that is not implemented yet.
 type Stub struct {
 	OS          string

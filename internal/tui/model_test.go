@@ -14,6 +14,7 @@ import (
 
 	_ "github.com/ryanparsa/osloader/internal/provider/debian"
 	_ "github.com/ryanparsa/osloader/internal/provider/macos"
+	_ "github.com/ryanparsa/osloader/internal/provider/ubuntu"
 	_ "github.com/ryanparsa/osloader/internal/provider/windows"
 )
 

@@ -20,8 +20,9 @@ const (
 
 	latencyWorkers = 16
 	speedWorkers   = 4
-	// speedFinalists is how many of the quickest mirrors get measured properly.
-	speedFinalists = 6
+	// speedFinalists is how many of the quickest mirrors get measured properly,
+	// and therefore how many sources a download ends up spread across.
+	speedFinalists = 10
 )
 
 // measurement is one mirror's result.

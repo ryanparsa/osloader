@@ -3,9 +3,13 @@
 Find official OS installers, download them fast, and verify that what landed on
 disk really is the vendor's file.
 
-macOS (Apple's Software Update catalog) and Debian (cdimage.debian.org) are
-implemented. Windows is registered behind the same interface and reports itself
-as not implemented yet.
+| OS | Source | What proves the file |
+|---|---|---|
+| macOS | Apple's Software Update catalog | `pkgutil` signature, Apple Root CA chain |
+| Debian | cdimage.debian.org | SHA-256 from the signed `SHA256SUMS` |
+| Ubuntu | releases.ubuntu.com, cdimage.ubuntu.com | SHA-256 from the signed `SHA256SUMS` |
+| Fedora | fedoraproject.org `releases.json` | SHA-256 and size published by Fedora |
+| Windows | - | registered, not implemented yet |
 
 Operating systems are not alike, so each one asks its own questions: Apple ships
 one installer per release, while Debian builds every image for several
@@ -23,6 +27,22 @@ go run ./cmd list            # or: go run cmd/main.go list
 Builds are published for Linux (amd64, arm64), Windows (amd64, arm64) and
 macOS (arm64), with a `SHA256SUMS` alongside them.
 
+The macOS build is not signed with an Apple Developer ID, so a binary downloaded
+through a browser is quarantined and Gatekeeper refuses to run it. Either fetch
+it without the browser, which never sets the quarantine flag:
+
+```bash
+curl -L https://github.com/ryanparsa/osloader/releases/latest/download/osloader_v0.1.0_darwin_arm64.tar.gz | tar xz
+```
+
+or clear the flag on what you already downloaded:
+
+```bash
+xattr -d com.apple.quarantine ./osloader
+```
+
+Building it yourself (`go build ./cmd`) avoids the question entirely.
+
 (`go install github.com/ryanparsa/osloader/cmd@latest` installs it as `cmd` -
 move the package to `cmd/osloader/` if you want that name to be `osloader`.)
 
@@ -37,9 +57,11 @@ osloader download --version 27.0           # pick by version (27 → newest 27.x
 osloader download --build 26A428 --out ~/Downloads --connections 12
 osloader url --version 27.0                # just print the URL
 
-osloader list --os debian                              # Debian images
 osloader list --os debian --filter arch=arm64 --filter media=cd
+osloader list --os ubuntu --filter arch=amd64 --filter variant=desktop
+osloader list --os fedora --filter variant=Workstation
 osloader download --os debian --product debian-13.7.0-amd64-netinst.iso
+osloader download --os ubuntu --product ubuntu-24.04.5.1-desktop-amd64.iso
 ```
 
 Flags that apply everywhere: `--os`, `--channel` (`public`, `devseed`, `beta`,
@@ -75,27 +97,21 @@ straight to their offsets in a pre-allocated file. Memory use is fixed - one
 256 KiB buffer per connection - so a 17 GiB installer costs the same RAM as a
 small one.
 
-Downloads go to the vendor's own server unless you ask for something else - a
-mirror is a choice, never a default. After you pick a Debian image it asks
-where to fetch it from, and the menu is Debian's own published mirror list
-(`Mirrors.masterlist`, ~90 sites with country and city) plus two measured
-options:
+Where a download comes from is the tool's problem, not a menu the user has to
+answer. Debian publishes around ninety mirrors and no way to know which is near
+this machine, so before a Debian download starts, every mirror is timed against
+the file itself - a 16 KiB latency screen across all of them, then a 256 KiB
+throughput read from the quickest ten - and those ten become the sources. Ubuntu
+serves its own images and Fedora redirects each request to a nearby mirror, so
+neither needs measuring.
 
-| Choice | What it does |
-|---|---|
-| `official` (default) | cdimage.debian.org, one source |
-| `fastest` | times every mirror on the real file - a 16 KiB latency screen across all of them, then a 256 KiB throughput read from the quickest six - and uses the winner |
-| `fastest3` | same measurement, then spreads the connections across the top three |
-| `<host>` | that mirror, e.g. `--filter mirror=ftp.fau.de` |
-
-`--mirror <url>` still adds sources by hand on any OS. Weekly (testing) builds
-are not mirrored, so only Debian's own server is offered there.
-
-When there is more than one source, mirrors are probed before use and dropped if
-they serve a different size or refuse ranges - chunks from two different files
-would corrupt the result. Connections spread across the healthy mirrors, each
-retry moves to another one, and three consecutive failures retire a mirror for
-the rest of the run.
+With more than one source, each is probed before use and dropped if it serves a
+different size or refuses ranges; chunks from two different files would corrupt
+the result. Connections spread across the healthy sources, a definitive failure
+(403, 404) retires that source and the chunk carries on elsewhere, and three
+consecutive failures retire it for the rest of the run. Public mirrors are not
+CDNs, so each host gets at most four connections. `--mirror <url>` adds a source
+by hand on any OS.
 
 The download screen gives each connection its own line - the chunk it holds,
 how far into it, and its own speed - so one stalled connection is obvious while
@@ -147,13 +163,16 @@ check did the work.
 4. **Signature** - `pkgutil --check-signature` must report an Apple-trusted
    chain ending in Apple Root CA.
 
-**Debian** - images come from a mirror network, so the transport proves nothing
-and the digest proves everything:
+**Debian, Ubuntu and Fedora** - images come from mirror networks, so the
+transport proves nothing and the digest proves everything:
 
-1. **SHA-256** must match the `SHA256SUMS` published for that directory, read
-   over HTTPS from Debian's own origin (and signed alongside as
-   `SHA256SUMS.sign`). A mismatch is fatal.
-2. Size is reported for information; Debian publishes digests, not byte counts.
+1. **SHA-256** must match what the project published: Debian's and Ubuntu's
+   `SHA256SUMS` (signed alongside as `SHA256SUMS.gpg`), or Fedora's
+   `releases.json`, each read over HTTPS from the project's own origin. A
+   mismatch is fatal.
+2. **Size** is a second gate where the project publishes one (Fedora does);
+   Debian and Ubuntu publish digests rather than byte counts, so the size is
+   reported for information.
 
 A file that fails is kept as `<name>.unverified` and the command exits non-zero.
 On macOS off-platform the signature step cannot run and says so - it is never
@@ -175,7 +194,8 @@ changes.
 cmd/main.go          entry point
 internal/cli/        cobra commands
 internal/tui/        Bubble Tea picker and progress view
-internal/provider/   Provider interface, facets, registry; macos/, debian/, windows/
+internal/provider/   Provider interface, facets, registry
+                     macos/, debian/, ubuntu/, fedora/, windows/, webdir/
 internal/download/   chunk planner, workers, resume state, progress
 internal/verify/     size, sha256, pkgutil signature (darwin build tag)
 internal/format/     byte, rate and duration rendering
