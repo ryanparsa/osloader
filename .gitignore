@@ -28,5 +28,16 @@ go.work.sum
 .env
 
 # Editor/IDE
-# .idea/
-# .vscode/
+.idea/
+.vscode/
+
+# osloader build output
+/osloader
+/dist/
+
+# Installers and partial downloads made while testing the tool
+*.iso
+*.pkg
+*.part
+*.part.json
+*.unverified
