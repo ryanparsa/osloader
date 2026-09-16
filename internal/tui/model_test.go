@@ -516,10 +516,10 @@ func TestMacOSSkipsStraightToTheList(t *testing.T) {
 	}
 }
 
-// TestFinishedDirectDownloadExitsWithTheDetails: after `osloader download`
-// there is nothing left to choose, so the UI gets out of the way and leaves
-// the path and what was verified in the terminal.
-func TestFinishedDirectDownloadExitsWithTheDetails(t *testing.T) {
+// TestFinishedDownloadExitsWithTheDetails: once the file is on disk there is
+// nothing left to do in the UI, so it gets out of the way and leaves the path,
+// what was verified, and the command to repeat it in the terminal.
+func TestFinishedDownloadExitsWithTheDetails(t *testing.T) {
 	m := downloadingWith(t, Config{OutDir: ".", Connections: download.DefaultConnections}, sampleWorkers())
 	m.direct = true
 
@@ -536,7 +536,7 @@ func TestFinishedDirectDownloadExitsWithTheDetails(t *testing.T) {
 	m = next.(model)
 
 	if cmd == nil {
-		t.Error("a finished direct download should leave the UI on its own")
+		t.Error("a finished download should leave the UI on its own")
 	}
 
 	summary := m.exitHint()
@@ -545,15 +545,17 @@ func TestFinishedDirectDownloadExitsWithTheDetails(t *testing.T) {
 		"✓ sha256",
 		"matches Debian's signed SHA256SUMS",
 		"6e93fa1759bd9d4b0fc11e938987de6967ee7de5297dac1be27c3a75cc17024b",
+		"next time: osloader download",
 	} {
 		if !strings.Contains(summary, want) {
 			t.Errorf("exit summary missing %q:\n%s", want, summary)
 		}
 	}
 
-	// In the picker the user may want to fetch something else, so it stays.
+	// The picker closes on the same terms: the download is what the user came
+	// for, and the details belong in the scrollback.
 	picker := downloadingWith(t, Config{OutDir: ".", Connections: download.DefaultConnections}, sampleWorkers())
-	if _, cmd := picker.Update(doneMsg{outcome: &download.Outcome{Path: "./x.iso"}}); cmd != nil {
-		t.Error("the picker should stay open after a download")
+	if _, cmd := picker.Update(doneMsg{outcome: &download.Outcome{Path: "./x.iso"}}); cmd == nil {
+		t.Error("the picker should close once the download is finished")
 	}
 }

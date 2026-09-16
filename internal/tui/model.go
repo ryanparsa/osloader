@@ -313,9 +313,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.stopping {
 			return m, tea.Quit // the engine has flushed its resume state by now
 		}
-		if msg.err == nil && m.direct {
-			// Nothing left to decide: leave the alt screen and print the
-			// result where it can be read, copied and scrolled back to.
+		if msg.err == nil {
+			// The job is done: leave the alt screen and print the result where
+			// it can be read, copied and scrolled back to, rather than holding
+			// the terminal to show something the user has finished with.
 			return m, tea.Quit
 		}
 		return m, nil
@@ -603,6 +604,9 @@ func (m model) savedSummary() string {
 	}
 	if report.SHA256 != "" && !mentionsHash(report) {
 		lines = append(lines, fmt.Sprintf("    %-10s %s", "sha256", report.SHA256))
+	}
+	if cmd := m.downloadCommand(); cmd != "" {
+		lines = append(lines, "", "next time: "+cmd)
 	}
 	return strings.Join(lines, "\n")
 }
