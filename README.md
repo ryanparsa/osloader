@@ -3,6 +3,8 @@
 Find official OS installers, download them fast, and verify that what landed on
 disk really is the vendor's file.
 
+![The osloader picker, choosing an operating system](docs/screenshot.png)
+
 | OS | Source | What proves the file |
 |---|---|---|
 | macOS | Apple's Software Update catalog | `pkgutil` signature, Apple Root CA chain |
