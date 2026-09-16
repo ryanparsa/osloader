@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<installer-gui-script minSpecVersion="2">
+    <title>macOS 27 Golden Gate</title>
+    <pkg-ref id="InstallAssistant" packageIdentifier="com.apple.pkg.InstallAssistant.macOSGoldenGate"/>
+    <volume-check script="">
+        <allowed-os-versions><os-version min="11.0"/></allowed-os-versions>
+    </volume-check>
+    <choices-outline><line choice="default"/></choices-outline>
+    <choice id="default" versStr="27.0.9" title="macOS"/>
+    <auxinfo>
+        <dict>
+            <key>SFR_VERSION</key>
+            <string>27.0</string>
+            <key>BUILD</key>
+            <string>26A428</string>
+            <key>VERSION</key>
+            <string>27.0</string>
+        </dict>
+    </auxinfo>
+    <script><![CDATA[
+        // A large block of JavaScript lives here in real distributions and must
+        // not confuse the parser: <key>BUILD</key><string>99Z999</string>
+        function volumeCheck() { return true; }
+    ]]></script>
+</installer-gui-script>
